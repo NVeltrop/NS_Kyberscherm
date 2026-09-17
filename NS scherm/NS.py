@@ -1,60 +1,41 @@
+```python
 import tkinter as tk
-from PIL import Image, ImageTk, ImageOps
-from pathlib import Path
-import subprocess
 import time
-import os
-import sys
+import subprocess
+from pathlib import Path
+
+from PIL import Image, ImageTk, ImageOps
+from screeninfo import get_monitors
 
 
 # ============================================================
 # INSTELLINGEN
 # ============================================================
 
-# Resolutie van het scherm
-SCREEN_WIDTH = 2560
-SCREEN_HEIGHT = 1440
+# Monitor:
+# 0 = hoofdmonitor
+# 1 = tweede monitor
+# 2 = derde monitor, enz.
+MONITOR_INDEX = 1
 
-
-# ------------------------------------------------------------
-# TIJDEN
-# ------------------------------------------------------------
-
-# Hoe lang het NS-scherm zichtbaar blijft
+# Tijd dat het NS-scherm zichtbaar is
 NS_TIME = 10
 
-# Hoe lang iedere afbeelding zichtbaar blijft
+# Tijd dat iedere afbeelding zichtbaar is
 IMAGE_TIME = 5
 
-
-# ------------------------------------------------------------
-# AFBEELDINGEN
-# ------------------------------------------------------------
-
-# Hoeveel afbeeldingen maximaal achter elkaar?
-#
-# Bijvoorbeeld:
-# 3 = na iedere 3 afbeeldingen terug naar NS
-# 5 = na iedere 5 afbeeldingen terug naar NS
-# 10 = na iedere 10 afbeeldingen terug naar NS
-#
-# ============================================================
-# AANTAL AFBEELDINGEN PER BLOK
-# ============================================================
-
+# Aantal afbeeldingen per blok
+# Voorbeeld:
+# [3, 6] = eerst 3 afbeeldingen, daarna NS,
+#          daarna 6 afbeeldingen, daarna NS, enz.
 BLOCKS = [3, 6]
 
-# ------------------------------------------------------------
-# MAP MET AFBEELDINGEN
-# ------------------------------------------------------------
+# Map met afbeeldingen
+IMAGE_FOLDER = Path(
+    r"C:\Users\Niels\Pictures\NSTest\afbeeldingen"
+)
 
-IMAGE_FOLDER = Path(r"C:\Users\Niels\Pictures\NSTest\afbeeldingen")
-
-
-# ------------------------------------------------------------
-# NS URL
-# ------------------------------------------------------------
-
+# NS externe scherm
 NS_URL = (
     "https://www.ns.nl/reisinformatie/externe-schermen/treinen/"
     "vertrektijden?stationId=DT&columns=2&rows=7&header=Delft"
@@ -62,69 +43,44 @@ NS_URL = (
 )
 
 
-# ------------------------------------------------------------
-# MOGELIJKE CHROME LOCATIES
-# ------------------------------------------------------------
+# ============================================================
+# MONITOR INSTELLEN
+# ============================================================
 
-CHROME_PATHS = [
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-]
+monitors = get_monitors()
+
+if len(monitors) <= MONITOR_INDEX:
+    print("FOUT: de gekozen monitor bestaat niet.")
+    print(f"Er zijn {len(monitors)} monitor(en) gevonden.")
+    input("Druk op Enter om af te sluiten...")
+    exit()
+
+monitor = monitors[MONITOR_INDEX]
+
+SCREEN_X = monitor.x
+SCREEN_Y = monitor.y
+SCREEN_WIDTH = monitor.width
+SCREEN_HEIGHT = monitor.height
+
+print("----------------------------------------")
+print("Geselecteerde monitor:")
+print(f"Monitor index : {MONITOR_INDEX}")
+print(f"Resolutie    : {SCREEN_WIDTH} x {SCREEN_HEIGHT}")
+print(f"Positie      : X={SCREEN_X}, Y={SCREEN_Y}")
+print("----------------------------------------")
 
 
 # ============================================================
-# CHROME VINDEN
-# ============================================================
-
-def find_chrome():
-
-    for path in CHROME_PATHS:
-
-        if os.path.exists(path):
-            return path
-
-    print("ERROR: Google Chrome kon niet worden gevonden.")
-
-    sys.exit(1)
-
-
-# ============================================================
-# CHROME STARTEN
-# ============================================================
-
-def start_chrome():
-
-    chrome = find_chrome()
-
-    print("Chrome starten...")
-
-    subprocess.Popen([
-        chrome,
-        "--kiosk",
-        "--disable-infobars",
-        "--disable-session-crashed-bubble",
-        "--disable-features=Translate",
-        "--noerrdialogs",
-        NS_URL
-    ])
-
-    print(
-        "Wachten totdat de NS-pagina geladen is..."
-    )
-
-    time.sleep(8)
-
-
-# ============================================================
-# AFBEELDINGEN VINDEN
+# AFBEELDINGEN INLEZEN
 # ============================================================
 
 def get_images():
+    """Zoek alle afbeeldingen in de ingestelde map."""
 
-    IMAGE_FOLDER.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    if not IMAGE_FOLDER.exists():
+        print(f"FOUT: map bestaat niet:")
+        print(IMAGE_FOLDER)
+        return []
 
     allowed_extensions = {
         ".jpg",
@@ -137,39 +93,62 @@ def get_images():
     images = []
 
     for file in IMAGE_FOLDER.iterdir():
-
-        if file.is_file():
-
-            if file.suffix.lower() in allowed_extensions:
-                images.append(file)
+        if file.is_file() and file.suffix.lower() in allowed_extensions:
+            images.append(file)
 
     # Alfabetisch sorteren
-    images.sort(
-        key=lambda x: x.name.lower()
-    )
+    images.sort(key=lambda x: x.name.lower())
 
-    # Dubbelen verwijderen
-    unique_images = []
-
-    seen = set()
-
-    for image in images:
-
-        full_path = str(
-            image.resolve()
-        ).lower()
-
-        if full_path not in seen:
-
-            seen.add(full_path)
-
-            unique_images.append(image)
-
-    return unique_images
+    return images
 
 
 # ============================================================
-# FULLSCREEN OVERLAY
+# CHROME STARTEN
+# ============================================================
+
+def find_chrome():
+    """Zoek Chrome op de computer."""
+
+    possible_paths = [
+        Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+    ]
+
+    for path in possible_paths:
+        if path.exists():
+            return path
+
+    return None
+
+
+def start_chrome():
+    """Start Chrome in kiosk mode."""
+
+    chrome = find_chrome()
+
+    if chrome is None:
+        print("FOUT: Chrome kon niet worden gevonden.")
+        return None
+
+    print("Chrome starten...")
+
+    process = subprocess.Popen([
+        str(chrome),
+        "--kiosk",
+        "--disable-infobars",
+        "--no-first-run",
+        "--disable-session-crashed-bubble",
+        NS_URL
+    ])
+
+    # Even wachten totdat Chrome geopend is
+    time.sleep(5)
+
+    return process
+
+
+# ============================================================
+# AFBEELDING OVERLAY
 # ============================================================
 
 class ImageOverlay:
@@ -178,26 +157,20 @@ class ImageOverlay:
 
         self.root = tk.Tk()
 
-        # Geen Windows-rand
+        # Geen titelbalk / randen
         self.root.overrideredirect(True)
 
         # Altijd boven Chrome
-        self.root.attributes(
-            "-topmost",
-            True
-        )
+        self.root.attributes("-topmost", True)
 
-        # Exact schermformaat
+        self.root.configure(bg="black")
+
+        # Precies de positie en resolutie van monitor 2
         self.root.geometry(
-            f"{SCREEN_WIDTH}x{SCREEN_HEIGHT}+0+0"
+            f"{SCREEN_WIDTH}x{SCREEN_HEIGHT}"
+            f"+{SCREEN_X}+{SCREEN_Y}"
         )
 
-        # Zwarte achtergrond
-        self.root.configure(
-            bg="black"
-        )
-
-        # Label voor afbeelding
         self.label = tk.Label(
             self.root,
             bg="black"
@@ -208,124 +181,62 @@ class ImageOverlay:
             expand=True
         )
 
-        # ESC = afsluiten
+        # Overlay aanvankelijk verborgen
+        self.root.withdraw()
+
+        # ESC = programma afsluiten
         self.root.bind(
             "<Escape>",
-            self.exit_program
+            lambda event: self.root.destroy()
         )
 
-        self.current_image = None
-
-        # Start verborgen
-        self.root.withdraw()
-
-        self.root.update()
-
-    # ========================================================
-    # OVERLAY TONEN
-    # ========================================================
-
-    def show(self):
-
-        self.root.deiconify()
-
-        self.root.lift()
-
-        self.root.attributes(
-            "-topmost",
-            True
-        )
-
-        self.root.focus_force()
-
-        self.root.update()
-
-    # ========================================================
-    # OVERLAY VERBERGEN
-    # ========================================================
-
-    def hide(self):
-
-        self.root.withdraw()
-
-        self.root.update()
-
-    # ========================================================
-    # AFBEELDING TONEN
-    # ========================================================
-
-    def show_image(self, filename):
+    def show_image(self, image_path):
 
         try:
 
-            print(
-                f"Afbeelding tonen: {filename.name}"
-            )
+            print(f"Afbeelding tonen: {image_path.name}")
 
-            image = Image.open(filename)
+            img = Image.open(image_path)
 
             # EXIF-rotatie corrigeren
-            image = ImageOps.exif_transpose(
-                image
-            )
+            img = ImageOps.exif_transpose(img)
 
-            # RGB
-            if image.mode not in (
-                "RGB",
-                "RGBA"
-            ):
-                image = image.convert(
-                    "RGB"
-                )
-
-            # ------------------------------------------------
-            # AFBEELDING SCHERMVULLEND MAKEN
-            # ------------------------------------------------
-
-            image = ImageOps.fit(
-                image,
-                (
-                    SCREEN_WIDTH,
-                    SCREEN_HEIGHT
-                ),
+            # Afbeelding schermvullend maken
+            # Hierbij kan een klein gedeelte van de afbeelding
+            # aan de zijkanten/bovenkant worden afgesneden.
+            img = ImageOps.fit(
+                img,
+                (SCREEN_WIDTH, SCREEN_HEIGHT),
                 method=Image.Resampling.LANCZOS,
                 centering=(0.5, 0.5)
             )
 
-            # Tkinter afbeelding
-            self.current_image = ImageTk.PhotoImage(
-                image
-            )
+            photo = ImageTk.PhotoImage(img)
 
-            # Alleen de inhoud vervangen.
-            #
-            # Het venster zelf blijft zichtbaar.
             self.label.configure(
-                image=self.current_image
+                image=photo
             )
 
+            # Belangrijk: referentie bewaren zodat Python
+            # de afbeelding niet uit het geheugen verwijdert.
+            self.label.image = photo
+
+            # Overlay tonen
+            self.root.deiconify()
+
+            # Tkinter direct laten tekenen
             self.root.update()
 
         except Exception as e:
 
-            print(
-                f"Fout bij afbeelding "
-                f"{filename}: {e}"
-            )
+            print("FOUT bij openen afbeelding:")
+            print(image_path)
+            print(e)
 
-    # ========================================================
-    # PROGRAMMA AFSLUITEN
-    # ========================================================
+    def hide(self):
 
-    def exit_program(self, event=None):
-
-        print(
-            "Programma afsluiten..."
-        )
-
-        self.root.destroy()
-
-        sys.exit(0)
+        self.root.withdraw()
+        self.root.update()
 
 
 # ============================================================
@@ -334,154 +245,151 @@ class ImageOverlay:
 
 def main():
 
-    print()
-    print("==============================")
-    print("      NS INFORMATIESCHERM")
-    print("==============================")
-    print()
+    print("")
+    print("========================================")
+    print("      NS DIGITAAL SCHERM")
+    print("========================================")
 
-    print(
-        f"NS-tijd: {NS_TIME} seconden"
-    )
+    print("")
+    print("Afbeeldingen zoeken...")
 
-    print(
-        f"Afbeelding-tijd: {IMAGE_TIME} seconden"
-    )
+    images = get_images()
 
+    print(f"{len(images)} afbeeldingen gevonden.")
 
-    print()
+    for image in images:
+        print(f"  - {image.name}")
 
-    # --------------------------------------------------------
-    # CHROME STARTEN
-    # --------------------------------------------------------
+    if len(images) == 0:
+        print("")
+        print("WAARSCHUWING: er zijn geen afbeeldingen gevonden.")
 
-    start_chrome()
+    print("")
+    print("Chrome starten...")
 
-    # --------------------------------------------------------
-    # OVERLAY MAKEN
-    # --------------------------------------------------------
+    chrome_process = start_chrome()
 
+    if chrome_process is None:
+        input("Druk op Enter om af te sluiten...")
+        return
+
+    # Overlay maken
     overlay = ImageOverlay()
 
-    # --------------------------------------------------------
-    # ONEINDIGE LOOP
-    # --------------------------------------------------------
+    try:
 
-    while True:
+        while True:
 
-        # ====================================================
-        # AFBEELDINGEN OPNIEUW INLADEN
-        # ====================================================
+            # Opnieuw afbeeldingen inlezen.
+            # Hierdoor kun je tijdens het draaien eventueel
+            # afbeeldingen toevoegen/verwijderen.
+            images = get_images()
 
-        images = get_images()
+            print("")
+            print("----------------------------------------")
+            print(f"{len(images)} afbeeldingen gevonden.")
+            print("----------------------------------------")
 
-        print()
-        print(
-            f"{len(images)} afbeeldingen gevonden."
-        )
-
-        # Geen afbeeldingen
-        if not images:
-
-            print(
-                "Geen afbeeldingen gevonden."
-            )
-
-            overlay.hide()
-
-            time.sleep(NS_TIME)
-
-            continue
-
-
-        # ====================================================
-        # EERST NS-SCHERM
-        # ====================================================
-
-        print()
-        print(
-            f"NS-scherm "
-            f"({NS_TIME} seconden)"
-        )
-
-        overlay.hide()
-
-        time.sleep(NS_TIME)
-
-
-        # ====================================================
-        # AFBEELDINGEN IN AANGEGEVEN BLOKKEN TONEN
-        # ====================================================
-
-        image_index = 0
-        block_index = 0
-
-        while image_index < len(images):
-
-            # Bepaal hoeveel afbeeldingen dit blok bevat
-            aantal_in_blok = BLOCKS[
-                block_index % len(BLOCKS)
-            ]
-
-            print()
-            print(
-                f"Blok {block_index + 1}: "
-                f"{aantal_in_blok} afbeeldingen"
-            )
-
-            # ------------------------------------------------
-            # NS-SCHERM VERBERGEN
-            # ------------------------------------------------
-
-            overlay.show()
-
-            # ------------------------------------------------
-            # AFBEELDINGEN VAN DIT BLOK
-            # ------------------------------------------------
-
-            for i in range(aantal_in_blok):
-
-                # Zijn alle afbeeldingen al geweest?
-                if image_index >= len(images):
-                    break
-
-                image = images[image_index]
-
-                overlay.show_image(image)
-
-                time.sleep(IMAGE_TIME)
-
-                image_index += 1
-
-            # ------------------------------------------------
-            # ZIJN ER NOG AFBEELDINGEN?
-            # ------------------------------------------------
-
-            if image_index < len(images):
-
-                print(
-                    "Blok klaar → NS-scherm"
-                )
+            if len(images) == 0:
 
                 overlay.hide()
 
+                print(f"NS-scherm ({NS_TIME} seconden)")
+
                 time.sleep(NS_TIME)
 
-            block_index += 1
+                continue
+
+            # ================================================
+            # NS-SCHERM
+            # ================================================
+
+            overlay.hide()
+
+            print("")
+            print(f"NS-scherm ({NS_TIME} seconden)")
+
+            time.sleep(NS_TIME)
+
+            # ================================================
+            # AFBEELDINGEN
+            # ================================================
+
+            image_index = 0
+            block_index = 0
+
+            while image_index < len(images):
+
+                # Bepaal hoeveel afbeeldingen dit blok bevat
+                aantal_in_blok = BLOCKS[
+                    block_index % len(BLOCKS)
+                ]
+
+                print("")
+                print(
+                    f"Blok {block_index + 1}: "
+                    f"{aantal_in_blok} afbeeldingen"
+                )
+
+                # Overlay tonen VOOR het hele blok
+                # Hierdoor verschijnt het NS-scherm niet
+                # tussen de afzonderlijke afbeeldingen.
+                overlay.root.deiconify()
+                overlay.root.update()
+
+                # Zoveel afbeeldingen tonen als dit blok voorschrijft
+                for _ in range(aantal_in_blok):
+
+                    if image_index >= len(images):
+                        break
+
+                    image = images[image_index]
+
+                    overlay.show_image(image)
+
+                    time.sleep(IMAGE_TIME)
+
+                    image_index += 1
+
+                block_index += 1
+
+                # ============================================
+                # TERUG NAAR NS
+                # ============================================
+
+                if image_index < len(images):
+
+                    overlay.hide()
+
+                    print("")
+                    print(
+                        f"Terug naar NS-scherm "
+                        f"({NS_TIME} seconden)"
+                    )
+
+                    time.sleep(NS_TIME)
+
+            # Na alle afbeeldingen begint de cyclus opnieuw.
 
 
-            # ====================================================
-            # ALLE AFBEELDINGEN GEWEEST
-            # ====================================================
+    except KeyboardInterrupt:
 
-            print()
-            print(
-                "Alle afbeeldingen zijn geweest."
-            )
+        print("")
+        print("Programma gestopt.")
 
-            print(
-                "Cyclus opnieuw starten."
-            )
+    except tk.TclError:
+
+        print("")
+        print("Overlay gesloten.")
+
+    finally:
+
+        try:
+            overlay.root.destroy()
+        except:
+            pass
+
+        print("Programma afgesloten.")
 
 
 # ============================================================
@@ -489,13 +397,5 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        main()
-
-    except KeyboardInterrupt:
-
-        print(
-            "\nProgramma gestopt."
-        )
+    main()
+```
